@@ -27,6 +27,15 @@ async function seed(): Promise<void> {
   try {
     await client.query('BEGIN');
 
+    const { rows: users } = await client.query(
+      `INSERT INTO users (email, display_name, password_hash)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (email) DO UPDATE SET display_name = EXCLUDED.display_name
+       RETURNING id`,
+      ['demo@example.com', 'Demo diner', '7f30edd8dcff6abf743eab1332920482:2e0d5f9fbca2d5cfee0a02fd1fda70c34b12b18c7f4c62899e4b621c526206af7a58a4e7cdadcb9907d27e465883634accf05760e262d005d5ed63de781cf249']
+    );
+    const userId = users[0].id;
+
     // Wipe and reset identity so ids are stable between seeds.
     await client.query('TRUNCATE visits, restaurants RESTART IDENTITY CASCADE');
 
@@ -39,6 +48,7 @@ async function seed(): Promise<void> {
         [r.name, r.cuisine, r.address, r.rating]
       );
       restaurantIds.push(rows[0].id);
+      await client.query('UPDATE restaurants SET "ownerId" = $1 WHERE id = $2', [userId, rows[0].id]);
     }
 
     for (const v of visits) {
@@ -47,6 +57,7 @@ async function seed(): Promise<void> {
          VALUES ($1, $2, $3, $4)`,
         [restaurantIds[v.restaurantIndex], v.date, v.amountSpent, v.notes]
       );
+      await client.query('UPDATE visits SET "ownerId" = $1 WHERE id = (SELECT max(id) FROM visits)', [userId]);
     }
 
     await client.query('COMMIT');
